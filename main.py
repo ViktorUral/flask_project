@@ -1,7 +1,9 @@
 import random
 import requests
+from flask import Flask, url_for
 
-map_file = "map.png"
+app = Flask(__name__)
+MAP_FILE = "static/img/map.png"
 
 
 def get_cords(geocode):
@@ -35,14 +37,29 @@ def get_response(point, zoom):
 
 def change_map(response):
     if response:
-        with open(map_file, "wb") as file:
+        with open(MAP_FILE, "wb") as file:
             file.write(response.content)
 
 
 city = ['Москва', 'Нью-Йорк', 'Токио', 'Париж', 'Сидней', 'Кейптаун']
 
 cords = [
-    get_response(get_cords(i), '13') for i in city
+    get_response(get_cords(i), '15') for i in city
 ]
 
 change_map(cords[random.randint(0, 5)])
+
+
+@app.route('/')
+def image():
+    return f'''<!doctype html>
+    <html lang="en">
+      <body>
+        <img src="{url_for('static', filename='img/map.png')}    " alt="Марс">
+      </body>
+    </html>
+    '''
+
+
+if __name__ == '__main__':
+    app.run(port=8080, host='127.0.0.1')
