@@ -59,6 +59,4 @@ def image():
       </body>
     </html>
     '''
-
-
-app.run()
+    
