@@ -1,86 +1,69 @@
 <!DOCTYPE html>
 <!DOCTYPE html>
 <!DOCTYPE html>
+<!DOCTYPE html>
+<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Карта в правом нижнем углу</title>
+    <title>Мини-карта</title>
     <style>
-        body {
-            margin: 0;
-            height: 100vh;
-            position: relative;
-        }
-
         #map {
-            width: 250px;    /* Размер карты */
+            width: 250px;
             height: 175px;
-            position: fixed; /* Фиксированное позиционирование */
-            right: 20px;    /* Отступ справа */
-            bottom: 20px;   /* Отступ снизу */
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
             border: 2px solid #2c3e50;
             border-radius: 8px;
-            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
-            z-index: 1000;  /* Чтобы карта была поверх других элементов */
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            z-index: 1000;
         }
     </style>
 </head>
 <body>
-<!-- Контент страницы (может быть любым) -->
-<h1>Основной контент страницы</h1>
-<p>Карта будет закреплена в правом нижнем углу.</p>
-
-<!-- Контейнер для карты -->
 <div id="map"></div>
+<img src="data:image/png;base64,{{ map_image }}" alt="Яндекс.Карта" class="map-image">
 
-<!-- Подключаем API Яндекс.Карт -->
 <script src="https://api-maps.yandex.ru/2.1/?apikey=ваш_api_ключ&lang=ru_RU"></script>
 <script>
     ymaps.ready(init);
-
-    // Объявляем глобальные переменные
     let map, placemark;
 
     function init() {
         map = new ymaps.Map("map", {
-            center: [55.751244, 37.618423],  // Москва
-            zoom: 10
-        });
+                center: [55.751244, 37.618423],  // Москва
+                zoom: 10,
+                type: 'yandex#map'  // Схематическая карта
+            });
 
-        // Обработчик клика на карту
         map.events.add('click', function(e) {
             const coords = e.get('coords');
 
-            // Удаляем предыдущую метку, если она есть
             if (placemark) {
                 map.geoObjects.remove(placemark);
             }
 
-            // Создаем новую метку
             placemark = new ymaps.Placemark(coords, {
-                hintContent: 'Ваша метка',
-                balloonContent: `
-                    <b>Координаты:</b> ${coords}<br>
-                    <button onclick="copyCoords('${coords}')">Копировать координаты</button>
-                `
+                balloonContent: `Координаты: ${coords}`
             }, {
-                preset: 'islands#redIcon'  // Можно выбрать иконку
+                preset: 'islands#redIcon'
             });
 
-            // Добавляем метку на карту
             map.geoObjects.add(placemark);
 
-            // Центрируем карту на метке (опционально)
-            map.panTo(coords);
+            // Отправка координат на сервер
+            fetch('/save_coords', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    latitude: coords[0],
+                    longitude: coords[1]
+                })
+            });
         });
-    }
-
-    // Функция для копирования координат
-    function copyCoords(coords) {
-        navigator.clipboard.writeText(coords)
-            .then(() => alert('Координаты скопированы: ' + coords))
-            .catch(err => console.error('Ошибка копирования: ', err));
     }
 </script>
 </body>
