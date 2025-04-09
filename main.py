@@ -1,56 +1,36 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask_socketio import SocketIO, emit
+import os
 import requests
-import base64
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your_secret_key'
+socketio = SocketIO(app)
 
+zoom = 12
+current_location = "Москва"
 
-def get_map_image(point, zoom):
-    apikey = "dd4cbcec-5917-4628-8c9b-68567548b81f"  # Замените на ваш ключ
-    map_params = {
-        "ll": ','.join(point),
-        "z": str(zoom),
-        "size": "600,400",
-        'l': 'map',
-        'apikey': apikey  # Добавлен apikey в параметры
-    }
-    map_api_server = "https://static-maps.yandex.ru/1.x"
-
-    try:
-        response = requests.get(map_api_server, params=map_params)
-        response.raise_for_status()
-        return response.content  # Возвращаем бинарные данные изображения
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка при запросе карты: {e}")
-        return None
+# Храним последние координаты
+last_coords = [55.751244, 37.618423]
 
 
 @app.route('/')
 def index():
-    point = ['37.617644', '55.755826']  # Москва, Кремль
-    zoom = 13
-
-    # Получаем изображение карты
-    image_data = get_map_image(point, zoom)
-
-    if image_data:
-        # Кодируем изображение в base64
-        image_base64 = base64.b64encode(image_data).decode('utf-8')
-    else:
-        image_base64 = None
-
-    return render_template('map.html', map_image=image_base64)
+    return render_template('map.html')
 
 
-# API для геокодирования (поиск координат по адресу)
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    return send_from_directory('static', filename)
+
+
 @app.route('/geocode', methods=['POST'])
 def geocode():
     address = request.json.get('address')
     if not address:
         return jsonify({"error": "Адрес не указан"}), 400
 
-    # Запрос к API Яндекс.Геокодера
-    API_KEY = '8013b162-6b42-4997-9691-77b7074026e0'  # Замените на свой!
+    API_KEY = 'your_yandex_api_key'
     url = f"https://geocode-maps.yandex.ru/1.x/?apikey={API_KEY}&geocode={address}&format=json"
 
     try:
@@ -58,6 +38,10 @@ def geocode():
         data = response.json()
         pos = data['response']['GeoObjectCollection']['featureMember'][0]['GeoObject']['Point']['pos']
         lon, lat = pos.split()
+        global last_coords, current_location
+        last_coords = [float(lat), float(lon)]
+        current_location = address
+        emit('map_update', {'coords': last_coords, 'zoom': zoom, 'location': current_location}, broadcast=True)
         return jsonify({"lat": lat, "lon": lon})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -66,11 +50,37 @@ def geocode():
 @app.route('/save_coords', methods=['POST'])
 def save_coords():
     data = request.json
-    lat = data['latitude']
-    lon = data['longitude']
-    print(f"Получены координаты: Широта: {lat}, Долгота: {lon}")
+    global last_coords, zoom
+    last_coords = [data['latitude'], data['longitude']]
+    zoom = data.get('zoom', 12)
+    emit('map_update', {'coords': last_coords, 'zoom': zoom}, broadcast=True)
     return jsonify({"status": "success"})
 
 
+@socketio.on('request_map')
+def handle_map_request():
+    emit('map_update', {
+        'coords': last_coords,
+        'zoom': zoom,
+        'location': current_location,
+        'image_url': f'/static/maps/{zoom}/{current_location}.png'
+    })
+
+
+@socketio.on('zoom_change')
+def handle_zoom_change(data):
+    global zoom
+    zoom += data.get('delta', 0)
+    zoom = max(10, min(20, zoom))
+    emit('map_update', {
+        'coords': last_coords,
+        'zoom': zoom,
+        'location': current_location,
+        'image_url': f'/static/maps/{zoom}/{current_location}.png'
+    }, broadcast=True)
+
+
 if __name__ == '__main__':
-    app.run()
+    if not os.path.exists('static/maps'):
+        os.makedirs('static/maps')
+    socketio.run(app, debug=True)
