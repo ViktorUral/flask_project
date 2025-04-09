@@ -1,86 +1,85 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
-import os
+import io
+import base64
+import random
 import requests
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your_secret_key'
+app.config['SECRET_KEY'] = 'secret_key_123'
 socketio = SocketIO(app)
-
-zoom = 12
-current_location = "Москва"
-
-# Храним последние координаты
-last_coords = [55.751244, 37.618423]
+n = 13
 
 
-@app.route('/')
-def index():
-    return render_template('map.html')
+def get_cords(geocode):
+    server_address = 'http://geocode-maps.yandex.ru/1.x/?'
+    api_key_1 = '8013b162-6b42-4997-9691-77b7074026e0'
+    geocoder_request = f'{server_address}apikey={api_key_1}&geocode={geocode}&format=json'
+    response = requests.get(geocoder_request)
+    json_response = response.json()
+    toponym = json_response["response"]["GeoObjectCollection"]["featureMember"][0]["GeoObject"]
+    return toponym["Point"]["pos"].split()
 
 
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    return send_from_directory('static', filename)
-
-
-@app.route('/geocode', methods=['POST'])
-def geocode():
-    address = request.json.get('address')
-    if not address:
-        return jsonify({"error": "Адрес не указан"}), 400
-
-    API_KEY = 'your_yandex_api_key'
-    url = f"https://geocode-maps.yandex.ru/1.x/?apikey={API_KEY}&geocode={address}&format=json"
+def get_response(point, zoom):
+    apikey = "b4755c84-fd7e-4198-bb38-654e90e7d54c"
+    map_params = {
+        "ll": ','.join(point),
+        "z": zoom,
+        "size": ",".join([str(600), str(400)]),
+        'l': 'sat'
+    }
+    map_api_server = "https://static-maps.yandex.ru/1.x"
 
     try:
-        response = requests.get(url)
-        data = response.json()
-        pos = data['response']['GeoObjectCollection']['featureMember'][0]['GeoObject']['Point']['pos']
-        lon, lat = pos.split()
-        global last_coords, current_location
-        last_coords = [float(lat), float(lon)]
-        current_location = address
-        emit('map_update', {'coords': last_coords, 'zoom': zoom, 'location': current_location}, broadcast=True)
-        return jsonify({"lat": lat, "lon": lon})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        response = requests.get(map_api_server, params=map_params)
+        response.raise_for_status()
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка при запросе карты: {e}")
+        return None
 
 
-@app.route('/save_coords', methods=['POST'])
-def save_coords():
-    data = request.json
-    global last_coords, zoom
-    last_coords = [data['latitude'], data['longitude']]
-    zoom = data.get('zoom', 12)
-    emit('map_update', {'coords': last_coords, 'zoom': zoom}, broadcast=True)
-    return jsonify({"status": "success"})
+# Функция для генерации случайного изображения (цветной квадрат)
+def generate_map_image(zoom):
+    city = ['Москва']
+
+    cords = [
+        get_response(get_cords(i), str(zoom)) for i in city
+    ]
+    img_str = base64.b64encode(cords[0].content).decode("utf-8")
+    return img_str
 
 
-@socketio.on('request_map')
-def handle_map_request():
-    emit('map_update', {
-        'coords': last_coords,
-        'zoom': zoom,
-        'location': current_location,
-        'image_url': f'/static/maps/{zoom}/{current_location}.png'
-    })
+# Главная страница
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 
-@socketio.on('zoom_change')
-def handle_zoom_change(data):
-    global zoom
-    zoom += data.get('delta', 0)
-    zoom = max(10, min(20, zoom))
-    emit('map_update', {
-        'coords': last_coords,
-        'zoom': zoom,
-        'location': current_location,
-        'image_url': f'/static/maps/{zoom}/{current_location}.png'
-    }, broadcast=True)
+# Обработчик WebSocket-запроса на обновление изображения
+@socketio.on('request_plus_image')
+def handle_image_request():
+    global n
+    img_data = generate_map_image(n)
+    emit('update_image', {'image_data': img_data})
+    n += 1
+
+
+@socketio.on('request_dif_image')
+def handle_image_request():
+    global n
+    img_data = generate_map_image(n)
+    emit('update_image', {'image_data': img_data})
+    n -= 1
+
+
+@socketio.on('marker_position')
+def handle_marker_position(data):
+    lat = data['latitude']
+    lon = data['longitude']
+    print(f"Новые координаты метки: {lat}, {lon}")
 
 
 if __name__ == '__main__':
-    if not os.path.exists('static/maps'):
-        os.makedirs('static/maps')
-    socketio.run(app, debug=True)
+    socketio.run(app, allow_unsafe_werkzeug=True, debug=True)
