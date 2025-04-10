@@ -10,6 +10,9 @@
             margin: 0;
             padding: 0;
             font-family: Arial, sans-serif;
+            background-image: url('{{ fon }}');
+            background-size: cover;
+            background-position: center;
             height: 100vh;
             position: relative;
         }
@@ -17,9 +20,15 @@
             margin: 20px;
         }
         button {
-            padding: 10px 20px;
+            padding: 5px 10px;
             font-size: 16px;
             margin: 5px;
+            width: 30px;
+            box-sizing: border-box;
+        }
+        .zoom-button {
+            min-width: 40px;
+            padding: 5px 10px;
         }
         .button-container {
             position: fixed;
@@ -52,81 +61,91 @@
     </style>
 </head>
 <body>
-    <div id="image-container">
-        <img id="dynamic-image" src="" alt="Dynamic Image">
-    </div>
+<div id="image-container">
+    <img id="dynamic-image" src="" alt="Dynamic Image">
+</div>
 
-    <div class="button-container">
-        <button class="zoom-button" onclick="zoomIn()">+</button>
-        <button class="zoom-button" onclick="zoomOut()">-</button>
-    </div>
+<div class="button-container">
+    <button class="zoom-button" onclick="zoomIn()">+</button>
+    <button class="zoom-button" onclick="zoomOut()">-</button>
+    <button class="zoom-button" onclick="resetZoom()">✓</button>
+</div>
 
-    <div id="map-container">
-        <div id="main-map"></div>
-    </div>
+<div id="map-container">
+    <div id="main-map"></div>
+</div>
 
-    <script src="https://api-maps.yandex.ru/2.1/?apikey=ваш_api_ключ&lang=ru_RU"></script>
-    <script>
-        const socket = io.connect('http://' + document.domain + ':' + location.port);
-        let map, currentPlacemark;
+<script src="https://api-maps.yandex.ru/2.1/?apikey=ваш_api_ключ&lang=ru_RU"></script>
+<script>
+    const socket = io.connect('http://' + document.domain + ':' + location.port);
+    let map, currentPlacemark;
 
-        // Инициализация карты
-        ymaps.ready(init);
+    // Инициализация карты
+    ymaps.ready(init);
 
-        function init() {
-            map = new ymaps.Map("main-map", {
-                center: [0.0, 0.0],
-                zoom: 1,
-                controls: ['fullscreenControl']
-            });
-
-            // Обработчик клика по карте
-            map.events.add('click', function(e) {
-                const coords = e.get('coords');
-
-                // Удаляем предыдущую метку, если есть
-                if (currentPlacemark) {
-                    map.geoObjects.remove(currentPlacemark);
-                }
-
-                // Создаем новую метку без текста в балуне
-                currentPlacemark = new ymaps.Placemark(
-                    coords,
-                    {}, // Пустой объект свойств
-                    {
-                        preset: 'islands#redIcon'
-                    }
-                );
-
-                // Добавляем метку на карту
-                map.geoObjects.add(currentPlacemark);
-
-                socket.emit('marker_position', {
-                    latitude: coords[0],
-                    longitude: coords[1]
-                });
-            });
-        }
-
-        // Функции для работы с изображением
-        function zoomIn() {
-            socket.emit('request_plus_image');
-        }
-
-        function zoomOut() {
-            socket.emit('request_dif_image');
-        }
-
-        // Получение нового изображения от сервера
-        socket.on('update_image', function(data) {
-            const imgElement = document.getElementById('dynamic-image');
-            imgElement.src = 'data:image/png;base64,' + data.image_data;
+    function init() {
+        map = new ymaps.Map("main-map", {
+            center: [0.0, 0.0],
+            zoom: 1,
+            controls: ['fullscreenControl']
         });
 
-        // Запрашиваем первое изображение при загрузке страницы
-        window.onload = function() {
-            socket.emit('request_plus_image');
-        };
-    </script>
+        // Обработчик клика по карте
+        map.events.add('click', function(e) {
+            const coords = e.get('coords');
+
+            // Удаляем предыдущую метку, если есть
+            if (currentPlacemark) {
+                map.geoObjects.remove(currentPlacemark);
+            }
+
+            // Создаем новую метку без текста в балуне
+            currentPlacemark = new ymaps.Placemark(
+                coords,
+                {}, // Пустой объект свойств
+                {
+                    preset: 'islands#redIcon'
+                }
+            );
+
+            // Добавляем метку на карту
+            map.geoObjects.add(currentPlacemark);
+
+            socket.emit('marker_position', {
+                latitude: coords[0],
+                longitude: coords[1]
+            });
+        });
+    }
+
+    // Функции для работы с изображением
+    function zoomIn() {
+        socket.emit('request_plus_image');
+    }
+
+    function zoomOut() {
+        socket.emit('request_dif_image');
+    }
+
+    function resetZoom() {
+        socket.emit('result_map');
+    }
+
+    // Получение нового изображения от сервера
+    socket.on('update_image', function(data) {
+        const imgElement = document.getElementById('dynamic-image');
+        imgElement.src = 'data:image/png;base64,' + data.image_data;
+    });
+
+    // Запрашиваем первое изображение при загрузке страницы
+    window.onload = function() {
+        socket.emit('request_plus_image');
+    };
+
+    socket.on('redirect_to_result', function(data) {
+    const url = `/result?a=${encodeURIComponent(data.a)}&b=${encodeURIComponent(data.b)}`;
+    window.location.href = url;  // Перенаправляем
+    });
+</script>
 </body>
 </html>
