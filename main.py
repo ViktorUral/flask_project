@@ -4,12 +4,17 @@ import io
 import base64
 import random
 import requests
+import logging
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret_key_123'
 socketio = SocketIO(app)
 zoom = 15
-
+logging.basicConfig(
+    filename='/home/simpleproject/error.log',
+    format='%(asctime)s %(levelname)s %(name)s %(message)s',
+    level=logging.ERROR
+)
 cities_over_8m = [
     "Токио", "Дели", "Шанхай", "Пекин", "Сеул",
 
@@ -47,8 +52,7 @@ def get_response(point, zoom):
         response.raise_for_status()
         return response
     except requests.exceptions.RequestException as e:
-        print(f"Ошибка при запросе карты: {e}")
-        return e
+        logging.error(e)
 
 
 def generate_map_image(cords, zoom):
@@ -106,10 +110,8 @@ def result():
     a = request.args.get('a')
     b = request.args.get('b')
     c, d = get_cords(cities_over_8m[city_num])
-    print(c, d)
     return render_template('result.html', fon=url_for('static', filename='fon.png'),
                            user_cords='[' + a + ',' + b + ']', true_cords='[' + d + ',' + c + ']')
 
-
-if __name__ == '__main__':
-    socketio.run(app, allow_unsafe_werkzeug=True, debug=True)
+# if __name__ == '__main__':
+#    socketio.run(app, allow_unsafe_werkzeug=True, debug=True)
