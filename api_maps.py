@@ -16,7 +16,6 @@ def get_cords(geocode):
 
 
 def get_response(point, zoom):
-    global response
     apikey = "b4755c84-fd7e-4198-bb38-654e90e7d54c"
     map_params = {
         "ll": ','.join(point),
@@ -32,4 +31,4 @@ def get_response(point, zoom):
         return response
     except requests.exceptions.RequestException as e:
         print(f"Ошибка при запросе карты: {e}")
-        return response.url
+        return e
