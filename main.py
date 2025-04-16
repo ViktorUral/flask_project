@@ -2,7 +2,6 @@ from flask import Flask, render_template, url_for, redirect, request
 from flask_socketio import SocketIO, emit
 import io
 import base64
-from api_maps import get_response, get_cords
 import random
 import requests
 
@@ -21,6 +20,35 @@ cities_over_8m = [
 ]
 city_num = random.randint(0, len(cities_over_8m) - 1)
 lat, lon = 0, 0
+
+
+def get_cords(geocode):
+    server_address = 'http://geocode-maps.yandex.ru/1.x/?'
+    api_key_1 = '8013b162-6b42-4997-9691-77b7074026e0'
+    geocoder_request = f'{server_address}apikey={api_key_1}&geocode={geocode}&format=json'
+    response = requests.get(geocoder_request)
+    json_response = response.json()
+    toponym = json_response["response"]["GeoObjectCollection"]["featureMember"][0]["GeoObject"]
+    return toponym["Point"]["pos"].split()
+
+
+def get_response(point, zoom):
+    apikey = "b4755c84-fd7e-4198-bb38-654e90e7d54c"
+    map_params = {
+        "ll": ','.join(point),
+        "z": zoom,
+        "size": ",".join([str(600), str(400)]),
+        'l': 'sat'
+    }
+    map_api_server = "https://static-maps.yandex.ru/1.x"
+
+    try:
+        response = requests.get(map_api_server, params=map_params)
+        response.raise_for_status()
+        return response
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка при запросе карты: {e}")
+        return e
 
 
 def generate_map_image(cords, zoom):
