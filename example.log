@@ -1,0 +1,8 @@
+2025-05-14 17:43:54,139 WARNING werkzeug Werkzeug appears to be used in a production deployment. Consider switching to a production web server instead.
+2025-05-14 17:43:54,143 WARNING werkzeug  * Debugger is active!
+2025-05-14 17:43:54,144 INFO werkzeug  * Debugger PIN: 117-074-811
+2025-05-14 17:45:43,517 INFO werkzeug  * Detected change in 'C:\\Users\\viktor\\PycharmProjects\\flask_project\\main.py', reloading
+2025-05-14 17:45:44,450 WARNING werkzeug Werkzeug appears to be used in a production deployment. Consider switching to a production web server instead.
+2025-05-14 17:45:44,454 WARNING werkzeug  * Debugger is active!
+2025-05-14 17:45:44,455 INFO werkzeug  * Debugger PIN: 117-074-811
+2025-05-14 17:47:05,153 INFO werkzeug  * Detected change in 'C:\\Users\\viktor\\PycharmProjects\\flask_project\\main.py', reloading

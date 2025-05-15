@@ -1,117 +1,179 @@
-from flask import Flask, render_template, url_for, redirect, request
-from flask_socketio import SocketIO, emit
-import io
-import base64
+import datetime
 import random
-import requests
 import logging
+from flask import Flask, render_template, url_for, redirect, request, session, jsonify
+from flask_login import LoginManager, login_user, current_user, login_required, logout_user
+
+from data import db_session
+from data.loginform import LoginForm, RegisterForm
+from data.users import User
+from data_base import get_image_from_db, get_all_cities
+from map_utility import get_cords, lonlat_distance
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret_key_123'
-socketio = SocketIO(app)
-zoom = 15
-logging.basicConfig(
-    filename='/home/simpleproject/error.log',
-    format='%(asctime)s %(levelname)s %(name)s %(message)s',
-    level=logging.ERROR
+app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(
+    days=365
 )
-cities_over_8m = [
-    "Токио", "Дели", "Шанхай", "Пекин", "Сеул",
+login_manager = LoginManager()
+login_manager.init_app(app)
+app.config['SECRET_KEY'] = 'secret_key_123'
+db_session.global_init("db/users.db")
 
-    "Каир", "Мехико", "Нью-Йорк", "Лос-Анджелес",
-
-    "Сан-Паулу", "Буэнос-Айрес", "Рио-де-Жанейро",
-    "Москва", "Стамбул"
-]
-city_num = random.randint(0, len(cities_over_8m) - 1)
-lat, lon = 0, 0
+CITY = get_all_cities()
 
 
-def get_cords(geocode):
-    server_address = 'http://geocode-maps.yandex.ru/1.x/?'
-    api_key_1 = '8013b162-6b42-4997-9691-77b7074026e0'
-    geocoder_request = f'{server_address}apikey={api_key_1}&geocode={geocode}&format=json'
-    response = requests.get(geocoder_request)
-    json_response = response.json()
-    toponym = json_response["response"]["GeoObjectCollection"]["featureMember"][0]["GeoObject"]
-    return toponym["Point"]["pos"].split()
-
-
-def get_response(point, zoom):
-    apikey = "b4755c84-fd7e-4198-bb38-654e90e7d54c"
-    map_params = {
-        "ll": ','.join(point),
-        "z": zoom,
-        "size": ",".join([str(600), str(400)]),
-        'l': 'sat'
-    }
-    map_api_server = "https://static-maps.yandex.ru/1.x"
-
-    try:
-        response = requests.get(map_api_server, params=map_params)
-        response.raise_for_status()
-        return response
-    except requests.exceptions.RequestException as e:
-        logging.error(e)
-
-
-def generate_map_image(cords, zoom):
-    binary_data = get_response(cords, zoom)
-    img_str = base64.b64encode(binary_data.content).decode("utf-8")
-    return img_str
-
-
-# Главная страница
 @app.route('/')
 def index():
+    registered = session.get('registered', None)
+    if registered is None:
+        session.permanent = True
+        session['registered'] = False
+        session['city'] = random.choice(CITY)
+        session['zoom'] = 14
+        session['passed_city'] = []
+        session['lat'] = 0
+        session['lon'] = 0
     return render_template('index.html', fon=url_for('static', filename='fon.png'))
 
 
-# Обработчик WebSocket-запроса на обновление изображения
-@socketio.on('request_plus_image')
-def handle_image_request():
-    global zoom, city_num
-    img_data = generate_map_image(get_cords(cities_over_8m[city_num]), zoom)
-    emit('update_image', {'image_data': img_data})
-    zoom += 1
-    if zoom < 17:
-        zoom += 1
+@app.route('/get_image')
+def get_image():
+    if not session.get('registered'):
+        img_data = get_image_from_db(session['city'], session['zoom'])
     else:
-        zoom = 17
+        img_data = get_image_from_db(current_user.city, current_user.zoom)
+    return jsonify({'image_data': img_data})
 
 
-@socketio.on('request_dif_image')
-def handle_image_request():
-    global zoom, city_num
-    img_data = generate_map_image(get_cords(cities_over_8m[city_num]), zoom)
-    emit('update_image', {'image_data': img_data})
-    if zoom > 11:
-        zoom -= 1
+@app.route('/zoom_in', methods=['POST'])
+def zoom_in():
+    if not session['registered']:
+        session['zoom'] = min(session.get('zoom', 14) + 1, 17)
     else:
-        zoom = 11
+        zoom = min(current_user.zoom + 1, 17)
+        update_user(zoom=zoom)
+    return jsonify({'status': 'ok'})
 
 
-@socketio.on('marker_position')
-def handle_marker_position(data):
-    global lat, lon
-    lat = data['latitude']
-    lon = data['longitude']
+@app.route('/zoom_out', methods=['POST'])
+def zoom_out():
+    if not session['registered']:
+        session['zoom'] = max(session.get('zoom', 14) - 1, 11)
+    else:
+        zoom = max(current_user.zoom - 1, 11)
+        update_user(zoom=zoom)
+    return jsonify({'status': 'ok'})
 
 
-@socketio.on('result_map')
-def handle_marker_position():
-    global lat, lon, city_num
-    city_num = random.randint(0, len(cities_over_8m) - 1)
-    emit('redirect_to_result', {'a': lat, 'b': lon})
+@app.route('/save_position', methods=['POST'])
+def save_position():
+    data = request.get_json()
+    session['lat'] = data['latitude']
+    session['lon'] = data['longitude']
+    return jsonify({'status': 'ok'})
 
 
 @app.route('/result')
 def result():
     a = request.args.get('a')
     b = request.args.get('b')
-    c, d = get_cords(cities_over_8m[city_num])
-    return render_template('result.html', fon=url_for('static', filename='fon.png'),
+    if not session['registered']:
+        c, d = get_cords(session['city'])
+        session['passed_city'].append(session['city'])
+        city = random.choice(CITY)
+        while city in session['passed_city']:
+            city = random.choice(CITY)
+        session['city'] = city
+    else:
+        c, d = get_cords(current_user.city)
+        if lonlat_distance([a, b], [d, c]) <= 250000:
+            update_user(city=True, xp=True)
+        else:
+            update_user(city=True)
+    return render_template('result.html',
                            user_cords='[' + a + ',' + b + ']', true_cords='[' + d + ',' + c + ']')
 
-# if __name__ == '__main__':
-#    socketio.run(app, allow_unsafe_werkzeug=True, debug=True)
+
+@login_manager.user_loader
+def load_user(user_id):
+    db_sess = db_session.create_session()
+    return db_sess.query(User).get(user_id)
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    session.permanent = True
+    session['registered'] = False
+    session['city'] = random.choice(CITY)
+    session['zoom'] = 14
+    session['passed_city'] = []
+    return redirect("/")
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    form = LoginForm()
+    if form.validate_on_submit():
+        db_sess = db_session.create_session()
+        user = db_sess.query(User).filter(User.name == form.username.data).first()
+        if user and user.check_password(form.password.data):
+            login_user(user, remember=form.remember_me.data)
+            return redirect("/")
+        return render_template('login.html',
+                               message="Неправильный логин или пароль",
+                               form=form)
+    return render_template('login.html', form=form)
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    form = RegisterForm()
+    if form.validate_on_submit():
+        db_sess = db_session.create_session()
+        if db_sess.query(User).filter(User.name == form.name.data).first():
+            return render_template('register.html', title='Регистрация',
+                                   form=form,
+                                   message="Такой пользователь уже есть")
+        user = User(
+            name=form.name.data,
+            hashed_password=form.password.data,
+            city=session.get('city', random.choice(CITY)),
+            zoom=session.get('zoom', 14),
+            xp=0,
+            passed_city=session.get('passed_city', [])
+        )
+        user.set_password(form.password.data)
+        db_sess.add(user)
+        db_sess.commit()
+        login_user(user, remember=False)
+        session.pop('name', None)
+        session.pop('city', None)
+        session.pop('zoom', None)
+        session.pop('passed_city', None)
+        session['registered'] = True
+        return redirect('/')
+    return render_template('register.html', title='Регистрация', form=form)
+
+
+def update_user(zoom=None, city=None, xp=None):
+    db_sess = db_session.create_session()
+    user = db_sess.query(User).filter(User.name == current_user.name).first()
+    if zoom is not None:
+        user.zoom = zoom
+    if city is not None:
+        user.passed_city = user.passed_city + [user.city]
+        if len(user.passed_city) == len(CITY):
+            user.passed_city = []
+        city = random.choice(CITY)
+        while city in user.passed_city:
+            city = random.choice(CITY)
+        user.city = city
+    if xp is not None:
+        user.xp = user.xp + 1
+    db_sess.commit()
+
+
+if __name__ == '__main__':
+    app.run(debug=True)
